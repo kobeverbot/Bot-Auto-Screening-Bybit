@@ -182,9 +182,36 @@ def scan():
         send_scan_completion(signal_count, duration, btc_bias)
 
 if __name__ == "__main__":
-    init_db()
-    scan()
-    schedule.every(CONFIG['system']['check_interval_hours']).hours.do(scan)
-    schedule.every(1).minutes.do(run_fast_update)
-    print("🚀 Bot Started.")
-    while True: schedule.run_pending(); time.sleep(1)
+    import argparse
+    parser = argparse.ArgumentParser(description='Bot Auto Screening - Bybit')
+    parser.add_argument('--backtest', action='store_true', help='Run backtesting mode instead of live scanning')
+    parser.add_argument('--bt-pairs', nargs='+', default=None, help='Specific pairs for backtest (e.g. BTC/USDT ETH/USDT)')
+    parser.add_argument('--bt-tf', default='4h', help='Backtest timeframe (default: 4h)')
+    parser.add_argument('--bt-days', type=int, default=90, help='Backtest lookback days (default: 90)')
+    parser.add_argument('--bt-max-pairs', type=int, default=20, help='Max pairs for backtest (default: 20)')
+    parser.add_argument('--bt-export', default=None, help='Export backtest results to JSON file')
+    args = parser.parse_args()
+
+    if args.backtest:
+        from modules.backtest import Backtester
+        from datetime import datetime, timedelta
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+        
+        bt = Backtester(exchange=exchange)
+        bt.run(
+            symbols=args.bt_pairs,
+            timeframe=args.bt_tf,
+            start_date=datetime.utcnow() - timedelta(days=args.bt_days),
+            end_date=datetime.utcnow(),
+            max_pairs=args.bt_max_pairs,
+        )
+        bt.report()
+        if args.bt_export:
+            bt.export_results(args.bt_export)
+    else:
+        init_db()
+        scan()
+        schedule.every(CONFIG['system']['check_interval_hours']).hours.do(scan)
+        schedule.every(1).minutes.do(run_fast_update)
+        print("🚀 Bot Started.")
+        while True: schedule.run_pending(); time.sleep(1)

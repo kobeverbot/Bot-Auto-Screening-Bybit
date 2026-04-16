@@ -79,14 +79,77 @@ El bot ejecutará un scan inmediato y luego repetirá según el intervalo config
 
 El autor menciona varias áreas donde se puede mejorar:
 
-1. **Gestión de riesgo más granular** — Ajuste dinámico de leverage según volatilidad del activo
-2. **Backtesting** — Implementar validación histórica de los setups antes de alertar
+1. ~~**Backtesting**~~ — ✅ **Implementado!** Ver sección Backtesting abajo
+2. **Gestión de riesgo más granular** — Ajuste dinámico de leverage según volatilidad del activo
 3. **Más patrones chartistas** — Agregar wedge, head & shoulders, cup & handle
 4. **Machine Learning** — Score compuesto con modelo entrenado en señales pasadas
 5. **Multi-exchange** — Soportar Binance, OKX además de Bybit
 6. **Dashboard web** — Interfaz web además de Discord para monitoreo
 7. **Notificaciones multi-canal** — Telegram, email además de Discord
 8. **Paper trading mode** — Modo simulación para validar señales sin riesgo real
+
+---
+
+## 🧪 Backtesting
+
+El módulo de backtesting permite validar la estrategia contra datos históricos antes de arriesgar capital real. Usa el **mismo pipeline** que el modo live: detección de patrones → technicals → SMC → quant → derivatives.
+
+### Uso rápido
+
+```bash
+# Backtest con top 20 pares por volumen, 4h, últimos 90 días
+python run_backtest.py
+
+# Backtest con pares específicos
+python run_backtest.py --pairs BTC/USDT ETH/USDT SOL/USDT
+
+# Cambiar timeframe y período
+python run_backtest.py --tf 1h --days 180
+
+# Limitar pares y exportar resultados
+python run_backtest.py --max-pairs 10 --export results.json
+
+# Usando main.py directamente
+python main.py --backtest --bt-pairs BTC/USDT --bt-tf 4h --bt-days 90 --bt-export bt_results.json
+```
+
+### Configuración (`config.json`)
+
+```json
+"backtest": {
+    "lookback_days": 90,
+    "timeframe": "4h",
+    "max_pairs": 20,
+    "cooldown_bars": 10,
+    "max_bars_simulation": 100
+}
+```
+
+| Parámetro | Default | Descripción |
+|-----------|---------|-------------|
+| `lookback_days` | 90 | Días hacia atrás para descargar datos |
+| `timeframe` | 4h | Timeframe de las velas |
+| `max_pairs` | 20 | Máximo de pares a escanear (top por volumen) |
+| `cooldown_bars` | 10 | Barras mínimas entre señales en el mismo símbolo |
+| `max_bars_simulation` | 100 | Barras máximas para simular cada trade |
+
+### Métricas del reporte
+
+El backtest genera un reporte completo con:
+
+- **Overall**: Win rate, profit factor, avg win/loss, total PnL, max drawdown, Sharpe ratio
+- **Exit Reasons**: Distribución de tp2, tp3, stop_loss, timeout
+- **Per Pattern**: Rendimiento por tipo de patrón (double_bottom, bull_flag, etc.)
+- **Per Side**: Long vs Short
+- **Score vs Performance**: Correlación entre total_score y resultados reales
+
+### Exportar resultados
+
+```bash
+python run_backtest.py --export backtest_results.json
+```
+
+Genera un JSON con todas las señales y trades simulados para análisis posterior.
 
 ---
 
