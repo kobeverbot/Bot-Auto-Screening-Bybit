@@ -293,6 +293,74 @@ Si no hay modelo entrenado, el sistema usa un **scoring heurístico ponderado** 
 
 ---
 
+## 📊 Dashboard Web
+
+Dashboard web integrado con FastAPI para monitorear señales, trades, rendimiento de patrones, estado del modelo ML y métricas de riesgo en tiempo real.
+
+### ¿Qué incluye?
+
+```
+dashboard/
+├── __init__.py
+├── api.py              # Backend FastAPI (11 endpoints)
+├── templates/
+│   └── index.html      # Frontend single-page (Chart.js + dark theme)
+└── static/             # Assets estáticos
+```
+
+### Tabs del dashboard
+
+| Tab | Contenido |
+|-----|-----------|
+| **Overview** | KPIs generales, señales diarias, distribución de scores, últimas señales |
+| **Signals** | Tabla completa de señales con filtros, scores detallados (tech/smc/quant/deriv/ML) |
+| **Patterns** | Win rate por patrón, uso de patrones (doughnut), tabla de rendimiento |
+| **ML Model** | Estado del modelo, feature importance, tipo de modelo, métricas de entrenamiento |
+| **Risk** | Posiciones abiertas, circuit breaker, rate limiter, configuración de riesgo |
+| **Backtest** | Resultados de backtests (equity curve, exit reasons, tabla de trades) |
+
+### Ejecutar
+
+```bash
+# Opción 1: Junto con el bot (recomendado)
+python main.py  # El dashboard arranca automáticamente si está enabled en config
+
+# Opción 2: Solo el dashboard
+cd dashboard && uvicorn api:app --host 0.0.0.0 --port 8080 --reload
+```
+
+### Configuración (`config.json`)
+
+```json
+"dashboard": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8080
+}
+```
+
+### API Endpoints
+
+```
+GET /                          → Dashboard HTML
+GET /api/health                → Health check + DB status
+GET /api/signals/recent        → Últimas señales (?limit=N&status=...)
+GET /api/signals/active        → Señales activas (Waiting Entry / Active)
+GET /api/stats/overview        → KPIs generales + últimas 24h
+GET /api/stats/daily           → Señales diarias agrupadas (?days=N)
+GET /api/stats/score-distribution → Distribución de scores
+GET /api/stats/pattern-performance → Win rate y métricas por patrón
+GET /api/ml/status             → Estado del modelo ML
+GET /api/ml/feature-importance → Importancia de features
+GET /api/risk/overview         → Posiciones, circuit breaker, rate limiter
+GET /api/backtest/list         → Lista de archivos de backtest
+GET /api/backtest/results      → Resultados de un backtest (?filepath=...)
+```
+
+El dashboard se auto-refresca cada 30 segundos.
+
+---
+
 ## ⚠️ Disclaimer
 
 Este bot es una herramienta de análisis y screening. **No es consejo financiero**. Trading de criptomonedas conlleva riesgo significativo. Usa siempre gestión de riesgo apropiada y nunca arriesgues lo que no puedes permitirte perder.

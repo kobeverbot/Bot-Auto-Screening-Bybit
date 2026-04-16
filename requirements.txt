@@ -9,3 +9,5 @@ psycopg2-binary
 scipy
 python-dotenvscikit-learn
 cloudpickle
+fastapi
+uvicorn

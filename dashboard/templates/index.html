@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Screening — Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #1c2128;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+            --accent-yellow: #d29922;
+            --accent-purple: #bc8cff;
+            --accent-orange: #f0883e;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .header h1 .icon { font-size: 22px; }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 8px;
+        }
+        .status-dot.ok { background: var(--accent-green); }
+        .status-dot.error { background: var(--accent-red); }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .refresh-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .refresh-btn:hover { background: var(--border); }
+        .refresh-btn.active { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* Navigation tabs */
+        .tabs {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            padding: 0 24px;
+            gap: 0;
+            overflow-x: auto;
+        }
+        .tab {
+            padding: 10px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: var(--text-primary); }
+        .tab.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        /* Content */
+        .content {
+            padding: 20px 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* Grid layouts */
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+        .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .card-header {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+        .card-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .card-sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        .card-value.green { color: var(--accent-green); }
+        .card-value.red { color: var(--accent-red); }
+        .card-value.blue { color: var(--accent-blue); }
+        .card-value.yellow { color: var(--accent-yellow); }
+        .card-value.purple { color: var(--accent-purple); }
+
+        /* Charts */
+        .chart-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        .chart-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        /* Tables */
+        .table-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        thead { background: var(--bg-secondary); }
+        th {
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+        td {
+            padding: 10px 12px;
+            border-top: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        tr:hover { background: rgba(88, 166, 255, 0.05); }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge-long { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+        .badge-short { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
+        .badge-win { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+        .badge-loss { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
+        .badge-waiting { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); }
+        .badge-active { background: rgba(88, 166, 255, 0.15); color: var(--accent-blue); }
+
+        /* Score bar */
+        .score-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .score-bar .bar {
+            width: 60px;
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .score-bar .bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+        .score-bar .bar-fill.high { background: var(--accent-green); }
+        .score-bar .bar-fill.mid { background: var(--accent-yellow); }
+        .score-bar .bar-fill.low { background: var(--accent-red); }
+
+        /* ML status indicator */
+        .ml-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+        }
+        .ml-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+        }
+        .ml-dot.active { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+        .ml-dot.inactive { background: var(--text-secondary); }
+
+        /* Feature importance bar */
+        .feat-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .feat-bar-label {
+            width: 120px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-align: right;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .feat-bar-track {
+            flex: 1;
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .feat-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            background: var(--accent-purple);
+        }
+        .feat-bar-value {
+            width: 40px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .grid-4 { grid-template-columns: repeat(2, 1fr); }
+            .grid-3 { grid-template-columns: 1fr; }
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 600px) {
+            .grid-4 { grid-template-columns: 1fr; }
+            .content { padding: 12px; }
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+    <h1>
+        <span class="icon">📊</span>
+        Bot Auto Screening
+        <span class="status-dot ok" id="statusDot"></span>
+    </h1>
+    <div class="header-right">
+        <span id="lastUpdate">—</span>
+        <span>|</span>
+        <span id="dbStatus">DB: —</span>
+        <button class="refresh-btn" onclick="refreshAll()" id="refreshBtn">🔄 Refresh</button>
+    </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+    <div class="tab active" data-tab="overview">📈 Overview</div>
+    <div class="tab" data-tab="signals">🔔 Signals</div>
+    <div class="tab" data-tab="patterns">🎯 Patterns</div>
+    <div class="tab" data-tab="ml">🧠 ML Model</div>
+    <div class="tab" data-tab="risk">🛡️ Risk</div>
+    <div class="tab" data-tab="backtest">🔬 Backtest</div>
+</div>
+
+<!-- Content -->
+<div class="content">
+
+    <!-- OVERVIEW TAB -->
+    <div class="tab-panel active" id="panel-overview">
+        <div class="grid-4" id="overview-cards"></div>
+        <div class="grid-2">
+            <div class="chart-container">
+                <div class="chart-title">📈 Daily Signals & Win Rate</div>
+                <canvas id="chartDaily" height="250"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">🎯 Score Distribution</div>
+                <canvas id="chartScoreDist" height="250"></canvas>
+            </div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title">🏆 Recent Signals</div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th><th>Side</th><th>TF</th><th>Pattern</th>
+                            <th>Entry</th><th>SL</th><th>TP1</th><th>RR</th>
+                            <th>Total</th><th>ML</th><th>Status</th><th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentSignalsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- SIGNALS TAB -->
+    <div class="tab-panel" id="panel-signals">
+        <div class="grid-4">
+            <div class="card">
+                <div class="card-header">Active Signals</div>
+                <div class="card-value blue" id="activeCount">—</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Total Today</div>
+                <div class="card-value" id="todayCount">—</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Avg Score (Active)</div>
+                <div class="card-value" id="activeAvgScore">—</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Best Score Today</div>
+                <div class="card-value green" id="bestScoreToday">—</div>
+            </div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title">
+                📊 All Signals
+                <select id="signalFilter" onchange="loadSignals()" style="float:right; background:var(--bg-secondary); border:1px solid var(--border); color:var(--text-primary); padding:4px 8px; border-radius:4px; font-size:12px;">
+                    <option value="">All</option>
+                    <option value="Waiting Entry">Waiting</option>
+                    <option value="Active">Active</option>
+                </select>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th><th>Side</th><th>TF</th><th>Pattern</th>
+                            <th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>TP3</th>
+                            <th>RR</th><th>Tech</th><th>SMC</th><th>Quant</th><th>Deriv</th>
+                            <th>ML</th><th>Total</th><th>Status</th><th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="allSignalsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- PATTERNS TAB -->
+    <div class="tab-panel" id="panel-patterns">
+        <div class="grid-2">
+            <div class="chart-container">
+                <div class="chart-title">📊 Pattern Win Rate</div>
+                <canvas id="chartPatternWin" height="300"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">📊 Pattern Usage</div>
+                <canvas id="chartPatternUsage" height="300"></canvas>
+            </div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title">📋 Pattern Performance Details</div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Pattern</th><th>Total</th><th>Wins</th><th>Win Rate</th>
+                            <th>Avg Score</th><th>Avg RR</th><th>Avg Tech</th><th>Avg SMC</th><th>Avg ML</th>
+                        </tr>
+                    </thead>
+                    <tbody id="patternTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ML TAB -->
+    <div class="tab-panel" id="panel-ml">
+        <div class="grid-4">
+            <div class="card">
+                <div class="card-header">Model Status</div>
+                <div class="card-value" id="mlStatus">—</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Model Type</div>
+                <div class="card-value blue" id="mlModelType">—</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Training Samples</div>
+                <div class="card-value" id="mlSamples">—</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Training Win Rate</div>
+                <div class="card-value" id="mlTrainWR">—</div>
+            </div>
+        </div>
+        <div class="grid-2">
+            <div class="chart-container">
+                <div class="chart-title">🧠 Feature Importance</div>
+                <canvas id="chartFeatureImportance" height="350"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">📋 Model Details</div>
+                <div id="mlDetails" style="font-size:13px; line-height:1.8;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RISK TAB -->
+    <div class="tab-panel" id="panel-risk">
+        <div class="grid-4" id="riskCards"></div>
+        <div class="chart-container">
+            <div class="chart-title">🛡️ Circuit Breaker Configuration</div>
+            <div id="riskConfig" style="font-size:13px; line-height:1.8;"></div>
+        </div>
+    </div>
+
+    <!-- BACKTEST TAB -->
+    <div class="tab-panel" id="panel-backtest">
+        <div class="chart-container">
+            <div class="chart-title">
+                🔬 Backtest Results
+                <select id="backtestSelect" onchange="loadBacktest()" style="float:right; background:var(--bg-secondary); border:1px solid var(--border); color:var(--text-primary); padding:4px 8px; border-radius:4px; font-size:12px;">
+                    <option value="">Select backtest...</option>
+                </select>
+            </div>
+        </div>
+        <div class="grid-4" id="btCards"></div>
+        <div class="grid-2">
+            <div class="chart-container">
+                <div class="chart-title">📊 Equity Curve</div>
+                <canvas id="chartEquity" height="280"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="chart-title">📊 Exit Reason Distribution</div>
+                <canvas id="chartExitReason" height="280"></canvas>
+            </div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title">📋 Backtest Trades</div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th><th>Side</th><th>Pattern</th><th>Entry</th>
+                            <th>Exit</th><th>PnL%</th><th>Result</th><th>Exit Reason</th>
+                            <th>Score</th><th>RR</th><th>Bars</th><th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="btTradesBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// State & Config
+// ---------------------------------------------------------------------------
+const API = '';
+let charts = {};
+const COLORS = {
+    green: '#3fb950', red: '#f85149', blue: '#58a6ff',
+    yellow: '#d29922', purple: '#bc8cff', orange: '#f0883e',
+    teal: '#39d353', pink: '#f778ba',
+};
+const CHART_COLORS = [
+    COLORS.blue, COLORS.green, COLORS.purple, COLORS.orange,
+    COLORS.yellow, COLORS.red, COLORS.teal, COLORS.pink,
+];
+
+// Chart.js defaults
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+Chart.defaults.font.size = 12;
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+
+// ---------------------------------------------------------------------------
+// Tab navigation
+// ---------------------------------------------------------------------------
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+async function api(path) {
+    const res = await fetch(API + path);
+    if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+    return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Overview
+// ---------------------------------------------------------------------------
+async function loadOverview() {
+    try {
+        const [stats, daily, scoreDist, recent] = await Promise.all([
+            api('/api/stats/overview'),
+            api('/api/stats/daily?days=30'),
+            api('/api/stats/score-distribution'),
+            api('/api/signals/recent?limit=15'),
+        ]);
+
+        // Cards
+        const o = stats.overall || {};
+        const h = stats.last_24h || {};
+        const wins = parseInt(o.wins) || 0;
+        const losses = parseInt(o.losses) || 0;
+        const total = parseInt(o.total_trades) || 0;
+        const wr = total > 0 ? ((wins / (wins + losses || 1)) * 100).toFixed(1) : '—';
+
+        document.getElementById('overview-cards').innerHTML = `
+            <div class="card">
+                <div class="card-header">Total Signals</div>
+                <div class="card-value blue">${total}</div>
+                <div class="card-sub">${h.trades_24h || 0} in last 24h</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Win Rate</div>
+                <div class="card-value ${parseFloat(wr) >= 50 ? 'green' : 'red'}">${wr}%</div>
+                <div class="card-sub">${wins}W / ${losses}L</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Avg Score</div>
+                <div class="card-value yellow">${parseFloat(o.avg_score).toFixed(1) || '—'}</div>
+                <div class="card-sub">avg RR: ${parseFloat(o.avg_rr).toFixed(2) || '—'}</div>
+            </div>
+            <div class="card">
+                <div class="card-header">ML Avg Score</div>
+                <div class="card-value purple">${parseFloat(o.avg_ml).toFixed(2) || '—'}</div>
+                <div class="card-sub">Tech: ${parseFloat(o.avg_tech).toFixed(1)} | SMC: ${parseFloat(o.avg_smc).toFixed(1)}</div>
+            </div>
+        `;
+
+        // Daily chart
+        renderDailyChart(daily);
+
+        // Score distribution chart
+        renderScoreDistChart(scoreDist);
+
+        // Recent signals table
+        renderRecentSignals(recent);
+    } catch (e) {
+        console.error('Overview error:', e);
+    }
+}
+
+function renderDailyChart(data) {
+    if (charts.daily) charts.daily.destroy();
+    const labels = data.map(d => d.date);
+    charts.daily = new Chart(document.getElementById('chartDaily'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Signals',
+                    data: data.map(d => d.signals),
+                    backgroundColor: COLORS.blue + '80',
+                    borderColor: COLORS.blue,
+                    borderWidth: 1,
+                    yAxisID: 'y',
+                },
+                {
+                    label: 'Wins',
+                    data: data.map(d => d.wins),
+                    backgroundColor: COLORS.green + '80',
+                    borderColor: COLORS.green,
+                    borderWidth: 1,
+                    yAxisID: 'y',
+                },
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { beginAtZero: true, title: { display: true, text: 'Count' } },
+            },
+        }
+    });
+}
+
+function renderScoreDistChart(data) {
+    if (charts.scoreDist) charts.scoreDist.destroy();
+    charts.scoreDist = new Chart(document.getElementById('chartScoreDist'), {
+        type: 'doughnut',
+        data: {
+            labels: data.map(d => d.score_range),
+            datasets: [{
+                data: data.map(d => d.count),
+                backgroundColor: [COLORS.red, COLORS.orange, COLORS.yellow, COLORS.green],
+                borderWidth: 0,
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'bottom' },
+            }
+        }
+    });
+}
+
+function renderRecentSignals(data) {
+    const tbody = document.getElementById('recentSignalsBody');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="12" class="empty-state">No signals yet</td></tr>'; return; }
+    tbody.innerHTML = data.map(s => `
+        <tr>
+            <td><strong>${s.symbol || ''}</strong></td>
+            <td><span class="badge ${s.side?.toLowerCase() === 'long' ? 'badge-long' : 'badge-short'}">${s.side || ''}</span></td>
+            <td>${s.timeframe || ''}</td>
+            <td>${s.pattern || ''}</td>
+            <td>${parseFloat(s.entry_price).toFixed(2) || ''}</td>
+            <td>${parseFloat(s.sl_price).toFixed(2) || ''}</td>
+            <td>${parseFloat(s.tp1).toFixed(2) || ''}</td>
+            <td>${parseFloat(s.rr).toFixed(1) || ''}</td>
+            <td>${scoreBadge(s.total_score)}</td>
+            <td>${s.ml_score ?? '—'}</td>
+            <td>${statusBadge(s.status)}</td>
+            <td>${timeAgo(s.created_at)}</td>
+        </tr>
+    `).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Signals
+// ---------------------------------------------------------------------------
+async function loadSignals() {
+    try {
+        const filter = document.getElementById('signalFilter').value;
+        const [active, recent] = await Promise.all([
+            api('/api/signals/active'),
+            api('/api/signals/recent?limit=200' + (filter ? '&status=' + filter : '')),
+        ]);
+
+        document.getElementById('activeCount').textContent = active.length;
+        const today = new Date().toISOString().slice(0, 10);
+        const todaySignals = recent.filter(s => s.created_at?.startsWith(today));
+        document.getElementById('todayCount').textContent = todaySignals.length;
+        const avgScore = active.length ? (active.reduce((s, x) => s + (x.total_score || 0), 0) / active.length).toFixed(1) : '—';
+        document.getElementById('activeAvgScore').textContent = avgScore;
+        const best = todaySignals.length ? Math.max(...todaySignals.map(s => s.total_score || 0)) : '—';
+        document.getElementById('bestScoreToday').textContent = best;
+
+        const tbody = document.getElementById('allSignalsBody');
+        if (!recent.length) { tbody.innerHTML = '<tr><td colspan="18" class="empty-state">No signals found</td></tr>'; return; }
+        tbody.innerHTML = recent.map(s => `
+            <tr>
+                <td><strong>${s.symbol || ''}</strong></td>
+                <td><span class="badge ${s.side?.toLowerCase() === 'long' ? 'badge-long' : 'badge-short'}">${s.side || ''}</span></td>
+                <td>${s.timeframe || ''}</td>
+                <td>${s.pattern || ''}</td>
+                <td>${s.entry_price ? parseFloat(s.entry_price).toFixed(2) : ''}</td>
+                <td>${s.sl_price ? parseFloat(s.sl_price).toFixed(2) : ''}</td>
+                <td>${s.tp1 ? parseFloat(s.tp1).toFixed(2) : ''}</td>
+                <td>${s.tp2 ? parseFloat(s.tp2).toFixed(2) : ''}</td>
+                <td>${s.tp3 ? parseFloat(s.tp3).toFixed(2) : ''}</td>
+                <td>${s.rr ? parseFloat(s.rr).toFixed(1) : ''}</td>
+                <td>${s.tech_score ?? '—'}</td>
+                <td>${s.smc_score ?? '—'}</td>
+                <td>${s.quant_score ?? '—'}</td>
+                <td>${s.deriv_score ?? '—'}</td>
+                <td>${s.ml_score ?? '—'}</td>
+                <td>${scoreBadge(s.total_score)}</td>
+                <td>${statusBadge(s.status)}</td>
+                <td>${timeAgo(s.created_at)}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        console.error('Signals error:', e);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Patterns
+// ---------------------------------------------------------------------------
+async function loadPatterns() {
+    try {
+        const data = await api('/api/stats/pattern-performance');
+        if (!data.length) return;
+
+        // Win rate chart
+        if (charts.patternWin) charts.patternWin.destroy();
+        const sorted = [...data].sort((a, b) => (parseFloat(b.win_rate) || 0) - (parseFloat(a.win_rate) || 0));
+        charts.patternWin = new Chart(document.getElementById('chartPatternWin'), {
+            type: 'bar',
+            data: {
+                labels: sorted.map(d => d.pattern),
+                datasets: [{
+                    label: 'Win Rate %',
+                    data: sorted.map(d => parseFloat(d.win_rate) || 0),
+                    backgroundColor: sorted.map(d => (parseFloat(d.win_rate) || 0) >= 50 ? COLORS.green + '80' : COLORS.red + '80'),
+                    borderColor: sorted.map(d => (parseFloat(d.win_rate) || 0) >= 50 ? COLORS.green : COLORS.red),
+                    borderWidth: 1,
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                scales: { x: { beginAtZero: true, max: 100 } },
+                plugins: { legend: { display: false } },
+            }
+        });
+
+        // Usage chart
+        if (charts.patternUsage) charts.patternUsage.destroy();
+        charts.patternUsage = new Chart(document.getElementById('chartPatternUsage'), {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d.pattern),
+                datasets: [{ data: data.map(d => d.total), backgroundColor: CHART_COLORS, borderWidth: 0 }]
+            },
+            options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        });
+
+        // Table
+        document.getElementById('patternTableBody').innerHTML = data.map(d => `
+            <tr>
+                <td><strong>${d.pattern}</strong></td>
+                <td>${d.total}</td>
+                <td>${d.wins}</td>
+                <td><span class="badge ${(parseFloat(d.win_rate)||0)>=50?'badge-win':'badge-loss'}">${d.win_rate || 0}%</span></td>
+                <td>${parseFloat(d.avg_score).toFixed(1)}</td>
+                <td>${parseFloat(d.avg_rr).toFixed(2)}</td>
+                <td>${parseFloat(d.avg_tech).toFixed(1)}</td>
+                <td>${parseFloat(d.avg_smc).toFixed(1)}</td>
+                <td>${parseFloat(d.avg_ml).toFixed(2)}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        console.error('Patterns error:', e);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ML
+// ---------------------------------------------------------------------------
+async function loadML() {
+    try {
+        const [status, importance] = await Promise.all([
+            api('/api/ml/status'),
+            api('/api/ml/feature-importance'),
+        ]);
+
+        const loaded = status.loaded !== false && !status.error;
+        document.getElementById('mlStatus').innerHTML = `
+            <div class="ml-indicator">
+                <div class="ml-dot ${loaded ? 'active' : 'inactive'}"></div>
+                ${loaded ? 'Active' : (status.error ? 'Error' : 'Not Loaded')}
+            </div>
+        `;
+        document.getElementById('mlModelType').textContent = status.model_type || '—';
+        document.getElementById('mlSamples').textContent = status.n_samples || '—';
+        document.getElementById('mlTrainWR').textContent = status.win_rate ? (parseFloat(status.win_rate) * 100).toFixed(1) + '%' : '—';
+
+        // Details
+        document.getElementById('mlDetails').innerHTML = `
+            <div><strong>Enabled:</strong> ${status.ml_enabled ? '✅' : '❌'}</div>
+            <div><strong>Mode:</strong> ${status.ml_mode || '—'}</div>
+            <div><strong>Version:</strong> ${status.version || '—'}</div>
+            <div><strong>Trained:</strong> ${status.trained_at || '—'}</div>
+            <div><strong>Avg PnL%:</strong> ${status.avg_pnl_pct ? parseFloat(status.avg_pnl_pct).toFixed(2) + '%' : '—'}</div>
+            <div><strong>Model File:</strong> ${status.model_file_exists ? '✅' : '❌'}</div>
+        `;
+
+        // Feature importance chart
+        if (importance.features?.length) {
+            if (charts.featureImportance) charts.featureImportance.destroy();
+            const maxVal = Math.max(...importance.values);
+            charts.featureImportance = new Chart(document.getElementById('chartFeatureImportance'), {
+                type: 'bar',
+                data: {
+                    labels: importance.features.slice(0, 15),
+                    datasets: [{
+                        label: 'Importance',
+                        data: importance.values.slice(0, 15),
+                        backgroundColor: COLORS.purple + '80',
+                        borderColor: COLORS.purple,
+                        borderWidth: 1,
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    scales: { x: { beginAtZero: true } },
+                    plugins: { legend: { display: false } },
+                }
+            });
+        }
+    } catch (e) {
+        console.error('ML error:', e);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Risk
+// ---------------------------------------------------------------------------
+async function loadRisk() {
+    try {
+        const data = await api('/api/risk/overview');
+        const cb = data.circuit_breaker || {};
+        const pos = data.open_positions || {};
+
+        document.getElementById('riskCards').innerHTML = `
+            <div class="card">
+                <div class="card-header">Open Positions</div>
+                <div class="card-value blue">${pos.open_positions || 0}</div>
+                <div class="card-sub">${pos.unique_symbols || 0} unique symbols</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Max Daily Loss</div>
+                <div class="card-value">${(cb.max_daily_loss_pct || 0) * 100}%</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Max Consecutive Losses</div>
+                <div class="card-value yellow">${cb.max_consecutive_losses || '—'}</div>
+            </div>
+            <div class="card">
+                <div class="card-header">Rate Limiter</div>
+                <div class="card-value">${data.rate_limiter?.tokens_available?.toFixed(1) || '—'}</div>
+                <div class="card-sub">tokens available (${data.rate_limiter?.max_calls_per_sec?.toFixed(1) || '?'} req/s)</div>
+            </div>
+        `;
+
+        document.getElementById('riskConfig').innerHTML = `
+            <div><strong>Circuit Breaker:</strong></div>
+            <div>• Max Daily Loss: ${(cb.max_daily_loss_pct || 0) * 100}%</div>
+            <div>• Max Consecutive Losses: ${cb.max_consecutive_losses || '—'}</div>
+            <div>• Pause on Consecutive: ${cb.pause_minutes_on_consecutive || '?'} min</div>
+            <div>• Max Daily Trades: ${cb.max_daily_trades || '—'}</div>
+            <div>• Max Open Exposure: ${(cb.max_open_exposure_pct || 0) * 100}%</div>
+            <br>
+            <div><strong>Dynamic Risk:</strong> ${data.dynamic_risk_enabled ? '✅ Enabled' : '❌ Disabled'}</div>
+        `;
+    } catch (e) {
+        console.error('Risk error:', e);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Backtest
+// ---------------------------------------------------------------------------
+async function loadBacktestList() {
+    try {
+        const files = await api('/api/backtest/list');
+        const sel = document.getElementById('backtestSelect');
+        sel.innerHTML = '<option value="">Select backtest...</option>';
+        files.forEach(f => {
+            sel.innerHTML += `<option value="${f.path}">${f.filename} (${f.size_kb}KB)</option>`;
+        });
+    } catch (e) { console.error('BT list error:', e); }
+}
+
+async function loadBacktest() {
+    const path = document.getElementById('backtestSelect').value;
+    if (!path) return;
+    try {
+        const data = await api('/api/backtest/results?filepath=' + encodeURIComponent(path));
+        const trades = data.trades || [];
+        const config = data.config || {};
+
+        // Summary cards
+        const wins = trades.filter(t => t.is_win).length;
+        const losses = trades.filter(t => !t.is_win).length;
+        const wr = trades.length ? ((wins / trades.length) * 100).toFixed(1) : '—';
+        const totalPnl = trades.reduce((s, t) => s + (t.pnl_pct || 0), 0);
+
+        document.getElementById('btCards').innerHTML = `
+            <div class="card"><div class="card-header">Total Trades</div><div class="card-value blue">${trades.length}</div></div>
+            <div class="card"><div class="card-header">Win Rate</div><div class="card-value ${parseFloat(wr)>=50?'green':'red'}">${wr}%</div></div>
+            <div class="card"><div class="card-header">Total PnL</div><div class="card-value ${totalPnl>=0?'green':'red'}">${totalPnl.toFixed(2)}%</div></div>
+            <div class="card"><div class="card-header">Avg RR</div><div class="card-value">${trades.length ? (trades.reduce((s,t)=>s+(t.rr||0),0)/trades.length).toFixed(2) : '—'}</div></div>
+        `;
+
+        // Equity curve
+        if (charts.equity) charts.equity.destroy();
+        let cumPnl = 0;
+        const equityData = trades.map(t => { cumPnl += (t.pnl_pct || 0); return cumPnl; });
+        charts.equity = new Chart(document.getElementById('chartEquity'), {
+            type: 'line',
+            data: {
+                labels: trades.map((_, i) => i + 1),
+                datasets: [{
+                    label: 'Cumulative PnL %',
+                    data: equityData,
+                    borderColor: totalPnl >= 0 ? COLORS.green : COLORS.red,
+                    backgroundColor: (totalPnl >= 0 ? COLORS.green : COLORS.red) + '20',
+                    fill: true,
+                    tension: 0.1,
+                    pointRadius: 0,
+                }]
+            },
+            options: { responsive: true, scales: { y: { title: { display: true, text: 'PnL %' } } } }
+        });
+
+        // Exit reasons
+        if (charts.exitReason) charts.exitReason.destroy();
+        const reasons = {};
+        trades.forEach(t => { const r = t.exit_reason || 'unknown'; reasons[r] = (reasons[r] || 0) + 1; });
+        charts.exitReason = new Chart(document.getElementById('chartExitReason'), {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(reasons),
+                datasets: [{ data: Object.values(reasons), backgroundColor: CHART_COLORS, borderWidth: 0 }]
+            },
+            options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        });
+
+        // Trades table
+        document.getElementById('btTradesBody').innerHTML = trades.slice(0, 100).map(t => `
+            <tr>
+                <td><strong>${t.symbol || ''}</strong></td>
+                <td><span class="badge ${t.side?.toLowerCase()==='long'?'badge-long':'badge-short'}">${t.side||''}</span></td>
+                <td>${t.pattern || ''}</td>
+                <td>${parseFloat(t.entry).toFixed(2)}</td>
+                <td>${parseFloat(t.exit_price).toFixed(2)}</td>
+                <td class="${(t.pnl_pct||0)>=0?'green':'red'}">${(t.pnl_pct||0).toFixed(2)}%</td>
+                <td><span class="badge ${t.is_win?'badge-win':'badge-loss'}">${t.is_win?'WIN':'LOSS'}</span></td>
+                <td>${t.exit_reason || ''}</td>
+                <td>${t.total_score || '—'}</td>
+                <td>${parseFloat(t.rr).toFixed(1)}</td>
+                <td>${t.bars_held || ''}</td>
+                <td>${t.bar_ts || ''}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        console.error('Backtest error:', e);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function scoreBadge(score) {
+    if (score == null) return '—';
+    const pct = Math.min(score / 20 * 100, 100);
+    const cls = score >= 14 ? 'high' : score >= 8 ? 'mid' : 'low';
+    return `<div class="score-bar"><span>${score}</span><div class="bar"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div></div>`;
+}
+
+function statusBadge(status) {
+    if (!status) return '—';
+    const s = status.toLowerCase();
+    let cls = 'badge-waiting';
+    if (s.includes('tp') || s.includes('win')) cls = 'badge-win';
+    else if (s.includes('sl') || s.includes('loss') || s.includes('stop')) cls = 'badge-loss';
+    else if (s.includes('active') || s.includes('entry')) cls = 'badge-active';
+    return `<span class="badge ${cls}">${status}</span>`;
+}
+
+function timeAgo(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return Math.floor(diff) + 's ago';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+}
+
+// ---------------------------------------------------------------------------
+// Refresh all
+// ---------------------------------------------------------------------------
+async function refreshAll() {
+    const btn = document.getElementById('refreshBtn');
+    btn.classList.add('active');
+    try {
+        await Promise.all([
+            loadOverview(),
+            loadSignals(),
+            loadPatterns(),
+            loadML(),
+            loadRisk(),
+            loadBacktestList(),
+        ]);
+        // Health check
+        const health = await api('/api/health');
+        document.getElementById('statusDot').className = 'status-dot ' + (health.status === 'ok' ? 'ok' : 'error');
+        document.getElementById('dbStatus').textContent = 'DB: ' + health.database;
+        document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+    } catch (e) {
+        document.getElementById('statusDot').className = 'status-dot error';
+        console.error('Refresh error:', e);
+    }
+    btn.classList.remove('active');
+}
+
+// Initial load
+refreshAll();
+
+// Auto-refresh every 30 seconds
+setInterval(refreshAll, 30000);
+</script>
+
+</body>
+</html>

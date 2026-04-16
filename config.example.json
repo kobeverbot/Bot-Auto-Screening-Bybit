@@ -143,5 +143,10 @@
             "categorical": ["pattern", "side", "btc_bias"],
             "derived": ["total_score", "score_balance", "smc_tech_ratio"]
         }
+    },
+    "dashboard": {
+        "enabled": true,
+        "host": "0.0.0.0",
+        "port": 8080
     }
 }
