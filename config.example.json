@@ -111,5 +111,37 @@
         "max_pairs": 20,
         "cooldown_bars": 10,
         "max_bars_simulation": 100
+    },
+    "ml_scoring": {
+        "enabled": false,
+        "mode": "augment",
+        "model_path": "ml_models/signal_model.json",
+        "min_training_samples": 50,
+        "augment_score_range": [0, 5],
+        "replace_score_weights": {
+            "tech_score": 1.0,
+            "smc_score": 1.2,
+            "quant_score": 0.8,
+            "deriv_score": 1.0,
+            "ml_confidence": 2.0
+        },
+        "heuristic_weights": {
+            "tech_score": 1.0,
+            "smc_score": 1.5,
+            "quant_score": 0.8,
+            "deriv_score": 1.2,
+            "zeta_score": 0.03,
+            "z_score": 0.1,
+            "obi": 1.5,
+            "rr_bonus": 0.5
+        },
+        "features": {
+            "numeric": [
+                "tech_score", "smc_score", "quant_score", "deriv_score",
+                "z_score", "zeta_score", "obi", "basis", "rr"
+            ],
+            "categorical": ["pattern", "side", "btc_bias"],
+            "derived": ["total_score", "score_balance", "smc_tech_ratio"]
+        }
     }
 }

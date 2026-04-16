@@ -7,4 +7,5 @@ requests
 mplfinance
 psycopg2-binary
 scipy
-python-dotenv
+python-dotenvscikit-learn
+cloudpickle

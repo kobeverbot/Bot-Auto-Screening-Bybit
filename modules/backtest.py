@@ -25,6 +25,7 @@ from modules.quant import calculate_metrics, check_fakeout
 from modules.derivatives import analyze_derivatives
 from modules.smc import analyze_smc
 from modules.patterns import find_pattern
+from modules.ml_scorer import get_ml_score, load_model as load_ml_model
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,20 @@ def analyze_bar_offline(df, idx, btc_bias, config):
     tech_reasons = [f"Pattern: {pattern}", div_msg] + [r for r in smc_reasons if r]
 
     total_score = tech_score + smc_score + quant_score + deriv_score
+
+    # ML Score Augmentation (same logic as main.py for consistency)
+    ml_result = get_ml_score({
+        "tech_score": tech_score, "smc_score": smc_score,
+        "quant_score": quant_score, "deriv_score": deriv_score,
+        "z_score": z_score, "zeta_score": zeta_score,
+        "obi": obi, "basis": basis, "rr": 0,
+        "pattern": pattern, "side": side, "btc_bias": "Sideways",
+    })
+    if ml_result["mode"] == "augment":
+        total_score += ml_result["ml_score"]
+    elif ml_result["mode"] == "replace":
+        total_score = ml_result["ml_score"]
+
     min_tech = CONFIG['strategy'].get('min_tech_score', 5)
     if tech_score < min_tech:
         return None
@@ -243,6 +258,7 @@ def analyze_bar_offline(df, idx, btc_bias, config):
         "deriv_score": int(deriv_score),
         "smc_score": int(smc_score),
         "total_score": int(total_score),
+        "ml_score": int(ml_result.get("ml_score", 0)),
         "btc_bias": btc_bias,
         "bar_idx": idx,
         "bar_ts": str(df['timestamp'].iloc[idx]),
@@ -451,6 +467,9 @@ class Backtester:
             start_date = datetime.utcnow() - timedelta(days=days)
         if end_date is None:
             end_date = datetime.utcnow()
+
+        # Load ML model for scoring (if available)
+        load_ml_model()
 
         # Get symbols
         if not symbols:

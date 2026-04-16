@@ -174,12 +174,13 @@ def send_alert(data):
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO trades (symbol, side, timeframe, pattern, entry_price, sl_price, tp1, tp2, tp3, reason, 
-                tech_score, quant_score, deriv_score, smc_score, basis, btc_bias, z_score, zeta_score, obi, 
+                tech_score, quant_score, deriv_score, smc_score, ml_score, total_score, basis, btc_bias, z_score, zeta_score, obi, 
                 tech_reasons, quant_reasons, deriv_reasons, smc_reasons, message_id, channel_id, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Waiting Entry')
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Waiting Entry')
             """, (symbol, data['Side'], data['Timeframe'], data['Pattern'], data['Entry'], data['SL'], data['TP1'], 
                   data['TP2'], data['TP3'], data['Reason'], data['Tech_Score'], data['Quant_Score'], data['Deriv_Score'], 
-                  data['SMC_Score'], data['Basis'], data['BTC_Bias'], data['Z_Score'], data['Zeta_Score'], data['OBI'], 
+                  data['SMC_Score'], data.get('ML_Score', 0), data.get('Total_Score', 0),
+                  data['Basis'], data['BTC_Bias'], data['Z_Score'], data['Zeta_Score'], data['OBI'],
                   data.get('Tech_Reasons',''), data.get('Quant_Reasons',''), data.get('Deriv_Reasons',''), smc_reasons_str,
                   r.json().get('id'), r.json().get('channel_id')))
             conn.commit()

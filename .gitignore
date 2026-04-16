@@ -31,3 +31,4 @@ logs/
 # Database
 *.db
 *.sqlite3
+ml_models/

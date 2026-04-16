@@ -56,6 +56,8 @@ def migrate_schema(conn):
         "quant_score": "INT", 
         "deriv_score": "INT", 
         "smc_score": "INT DEFAULT 0",
+        "ml_score": "INT DEFAULT 0",
+        "total_score": "INT DEFAULT 0",
         
         # DETAILED METRICS
         "z_score": "DECIMAL DEFAULT 0", 

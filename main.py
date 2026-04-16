@@ -18,6 +18,7 @@ from modules.smc import analyze_smc
 from modules.patterns import find_pattern
 from modules.discord_bot import send_alert, update_status_dashboard, run_fast_update, send_scan_completion
 from modules.rate_limiter import get_rate_limiter
+from modules.ml_scorer import get_ml_score, load_model as load_ml_model
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,19 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals):
         tech_reasons = [f"Pattern: {pattern}", div_msg] + smc_reasons
 
         total_score = tech_score + smc_score + quant_score + deriv_score
+
+        # 5b. ML Score Augmentation (adds 0-5 bonus based on trained model or heuristic)
+        ml_result = get_ml_score({
+            "tech_score": tech_score, "smc_score": smc_score,
+            "quant_score": quant_score, "deriv_score": deriv_score,
+            "z_score": z_score, "zeta_score": zeta_score,
+            "obi": obi, "basis": basis, "rr": 0,  # rr calculated later
+            "pattern": pattern, "side": side, "btc_bias": btc_bias,
+        })
+        if ml_result["mode"] == "augment":
+            total_score += ml_result["ml_score"]
+        elif ml_result["mode"] == "replace":
+            total_score = ml_result["ml_score"]
         
         if "Bearish" in btc_bias and side == "Long": return None
         if "Bullish" in btc_bias and side == "Short": return None
@@ -122,6 +136,8 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals):
             "Entry": float(entry), "SL": float(sl), "TP1": float(tp1), "TP2": float(tp2), "TP3": float(tp3), "RR": float(rr),
             "Tech_Score": int(tech_score), "Quant_Score": int(quant_score), 
             "Deriv_Score": int(deriv_score), "SMC_Score": int(smc_score),
+            "ML_Score": int(ml_result.get("ml_score", 0)),
+            "Total_Score": int(total_score),
             "Basis": float(basis), "Z_Score": float(z_score), "Zeta_Score": float(zeta_score), "OBI": float(obi),
             "BTC_Bias": btc_bias, "Reason": pattern, 
             "Tech_Reasons": ", ".join(tech_reasons),
@@ -138,6 +154,9 @@ def scan():
     print(f"\n[{pd.Timestamp.now()}] 🔭 Scanning... Mode: {os.getenv('BOT_ENV', 'PROD')}")
     btc_bias = get_btc_bias()
     print(f"📊 BTC Bias: {btc_bias}")
+    
+    # Load ML model (if available and enabled)
+    load_ml_model()
     
     active_signals = get_active_signals()
     print(f"🛡️ Active Signals Ignored: {len(active_signals)}")

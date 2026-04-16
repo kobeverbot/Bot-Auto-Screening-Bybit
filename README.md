@@ -83,7 +83,7 @@ El autor menciona varias áreas donde se puede mejorar:
 1. ~~**Backtesting**~~ — ✅ **Implementado!** Ver sección Backtesting abajo
 2. ~~**Gestión de riesgo más granular**~~ — ✅ **Implementado!** Ver sección Dynamic Risk abajo
 3. ~~**Más patrones chartistas**~~ — ✅ **Implementado!** Wedge, head & shoulders, cup & handle, inverse H&S, rising/falling wedge
-4. **Machine Learning** — Score compuesto con modelo entrenado en señales pasadas
+4. ~~**Machine Learning**~~ — ✅ **Implementado!** Ver sección ML Scoring abajo
 5. **Multi-exchange** — Soportar Binance, OKX además de Bybit
 6. **Dashboard web** — Interfaz web además de Discord para monitoreo
 7. **Notificaciones multi-canal** — Telegram, email además de Discord
@@ -207,6 +207,89 @@ El circuit breaker se beneficia del módulo de riesgo dinámico:
     "max_leverage": 50
 }
 ```
+
+---
+
+## 🧠 ML Scoring
+
+El módulo `ml_scorer.py` añade una capa de Machine Learning sobre el scoring heurístico existente. Usa un modelo entrenado con señales pasadas y sus resultados reales para mejorar la calidad de las señales.
+
+### ¿Cómo funciona?
+
+```
+Señal (scores + pattern + side + bias)
+         → Feature engineering (28 features)
+            ├─ 9 numéricas: tech, smc, quant, deriv, z_score, zeta, obi, basis, rr
+            ├─ 3 derivadas: total_score, score_balance, smc_tech_ratio
+            ├─ 13 one-hot: patrones chartistas
+            ├─ 1 binaria: side (long/short)
+            └─ 2 binarias: btc_bias (bull/bear)
+         → Modelo entrenado (GradientBoosting / RandomForest / LogisticRegression)
+         → Probabilidad de win
+         → ML Score (0-5 en modo augment, o reemplaza en modo replace)
+```
+
+### Dos modos de operación
+
+| Modo | Comportamiento |
+|------|---------------|
+| **`augment`** (default) | Añade 0-5 puntos extra al total_score basado en la confianza del modelo |
+| **`replace`** | Reemplaza el scoring heurístico con el scoring ML usando pesos configurables |
+
+### Entrenar el modelo
+
+```bash
+# Desde resultados de backtest exportado
+python train_model.py --source export --file backtest_results.json
+
+# Backtest + entrenamiento en un solo paso
+python train_model.py --source backtest --pairs BTC/USDT ETH/USDT --days 180
+
+# Desde base de datos (requiere PostgreSQL configurado)
+python train_model.py --source db
+
+# Especificar tipo de modelo
+python train_model.py --source export --file results.json --model random_forest
+python train_model.py --source export --file results.json --model logistic
+```
+
+### Configuración (`config.json`)
+
+```json
+"ml_scoring": {
+    "enabled": true,
+    "mode": "augment",
+    "model_path": "ml_models/signal_model.json",
+    "min_training_samples": 50,
+    "augment_score_range": [0, 5],
+    "replace_score_weights": {
+        "tech_score": 1.0, "smc_score": 1.2,
+        "quant_score": 0.8, "deriv_score": 1.0,
+        "ml_confidence": 2.0
+    },
+    "heuristic_weights": {
+        "tech_score": 1.0, "smc_score": 1.5,
+        "quant_score": 0.8, "deriv_score": 1.2,
+        "zeta_score": 0.03, "z_score": 0.1,
+        "obi": 1.5, "rr_bonus": 0.5
+    }
+}
+```
+
+| Parámetro | Default | Descripción |
+|-----------|---------|-------------|
+| `enabled` | `true` | Activar/desactivar ML scoring |
+| `mode` | `"augment"` | `"augment"` o `"replace"` |
+| `model_path` | `"ml_models/signal_model.json"` | Path al modelo entrenado |
+| `min_training_samples` | `50` | Mínimo de muestras para entrenar |
+| `augment_score_range` | `[0, 5]` | Rango del bonus ML en modo augment |
+
+### Fallback heurístico
+
+Si no hay modelo entrenado, el sistema usa un **scoring heurístico ponderado** con confluence bonus:
+- Cada componente (tech, smc, quant, deriv) tiene un peso configurable
+- Si 4+ componentes están activos → +15% confluence bonus
+- Si 3 componentes → +5% bonus
 
 ---
 
