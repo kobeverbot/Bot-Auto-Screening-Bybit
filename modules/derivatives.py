@@ -1,9 +1,14 @@
+import logging
 import numpy as np
 from scipy.stats import linregress
 
+logger = logging.getLogger(__name__)
+
 def get_slope(series):
     try: return linregress(np.arange(len(series)), np.array(series))[0]
-    except: return 0
+    except Exception as e:
+        logger.debug(f"get_slope failed: {e}")
+        return 0
 
 def analyze_derivatives(df, ticker, side):
     """

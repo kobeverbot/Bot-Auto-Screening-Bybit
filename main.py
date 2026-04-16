@@ -3,6 +3,7 @@ import time
 import schedule
 import random
 import os
+import logging
 import pandas as pd
 import pandas_ta as ta
 import numpy as np
@@ -16,8 +17,12 @@ from modules.derivatives import analyze_derivatives
 from modules.smc import analyze_smc
 from modules.patterns import find_pattern
 from modules.discord_bot import send_alert, update_status_dashboard, run_fast_update, send_scan_completion
+from modules.rate_limiter import get_rate_limiter
+
+logger = logging.getLogger(__name__)
 
 exchange = ccxt.bybit({'apiKey': CONFIG['api']['bybit_key'], 'secret': CONFIG['api']['bybit_secret'], 'options': {'defaultType': 'swap'}})
+rate_limiter = get_rate_limiter()
 
 def get_btc_bias():
     try:
@@ -28,7 +33,9 @@ def get_btc_bias():
         df['ema21'] = ta.ema(df['c'], length=21)
         curr = df.iloc[-1]
         return "Bullish" if curr['ema13'] > curr['ema21'] else "Bearish"
-    except: return "Sideways"
+    except Exception as e:
+        logger.debug(f"get_btc_bias failed: {e}")
+        return "Sideways"
 
 def calculate_rr(entry, sl, tp3):
     if entry <= 0 or sl <= 0 or tp3 <= 0: return 0.0
@@ -40,10 +47,12 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals):
     if (symbol, timeframe) in active_signals: return None
     
     try:
+        rate_limiter.acquire()
         ticker_info = exchange.fetch_ticker(symbol)
         if "ST" in ticker_info.get('info', {}).get('symbol', ''): return None
         
         min_candles = CONFIG['system'].get('min_candles_analysis', 150)
+        rate_limiter.acquire()
         bars = exchange.fetch_ohlcv(symbol, timeframe, limit=min_candles + 50)
         if not bars or len(bars) < min_candles: return None
             
@@ -120,7 +129,9 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals):
             "SMC_Reasons": ", ".join([r for r in smc_reasons if r]), # <--- NEW FIELD
             "Deriv_Reasons": ", ".join(deriv_reasons), "df": df
         }
-    except: return None
+    except Exception as e:
+        logger.debug(f"analyze_ticker failed for {symbol if 'symbol' in dir() else 'unknown'}: {e}")
+        return None
 
 def scan():
     start_time = time.time()

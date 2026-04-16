@@ -1,6 +1,9 @@
+import logging
 import numpy as np
 import pandas_ta as ta
 from scipy.special import expit
+
+logger = logging.getLogger(__name__)
 
 def calculate_z_score(series, window=20):
     mean = series.rolling(window=window).mean()
@@ -32,13 +35,17 @@ def calculate_zeta_field(df, basis):
         if zeta_score > 70: score_add, reason = 1, f"ζ-High ({zeta_score:.1f})"
         elif zeta_score < 30: score_add, reason = 1, f"ζ-Low ({zeta_score:.1f})"
         return zeta_score, score_add, reason
-    except: return 50.0, 0, ""
+    except Exception as e:
+        logger.debug(f"calculate_zeta_field failed: {e}")
+        return 50.0, 0, ""
 
 def calculate_obi(ticker):
     try:
         bid, ask = ticker.get('bidVolume', 0), ticker.get('askVolume', 0)
         return (bid - ask) / (bid + ask) if (bid + ask) > 0 else 0.0
-    except: return 0.0
+    except Exception as e:
+        logger.debug(f"calculate_obi failed: {e}")
+        return 0.0
 
 def calculate_metrics(df, ticker):
     mark = float(ticker.get('last', 0))

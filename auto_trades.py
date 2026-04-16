@@ -7,11 +7,16 @@ from datetime import datetime
 from pybit.unified_trading import WebSocket
 from modules.config_loader import CONFIG
 from modules.database import get_conn, release_conn
+from modules.circuit_breaker import circuit_breaker
 
 # --- ⚙️ CONFIGURATION ---
-TARGET_LEVERAGE = 25    
-RISK_PERCENT = 0.01           # Risk 1% of Equity per trade
-MAX_POSITIONS = 40            # Max Concurrent OPEN positions
+_trading_cfg = CONFIG.get('trading', {})
+TARGET_LEVERAGE   = int(_trading_cfg.get('target_leverage', 25))
+RISK_PERCENT      = float(_trading_cfg.get('risk_percent', 0.01))     # Risk 1% of Equity per trade
+MAX_POSITIONS     = int(_trading_cfg.get('max_positions', 40))         # Max Concurrent OPEN positions
+MAX_POSITION_PCT  = float(_trading_cfg.get('max_position_pct', 0.05)) # Max 5% of equity per position
+TRAILING_STOP_PCT = float(_trading_cfg.get('trailing_stop_pct', 0.015))  # 1.5% trailing distance
+TRAILING_ACT_TP   = int(_trading_cfg.get('trailing_activation_tp', 2))   # TP level that activates trailing (1=TP1, 2=TP2)
 TP_SPLIT = [0.30, 0.30, 0.40] # 30% TP1, 30% TP2, 40% TP3
 
 # Logging Setup
@@ -56,6 +61,7 @@ def init_execution_db():
                 status VARCHAR(20) DEFAULT 'PENDING',
                 pnl DECIMAL DEFAULT 0,
                 is_sl_moved BOOLEAN DEFAULT FALSE,
+                trailing_activated BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -195,14 +201,14 @@ def on_position_update(message):
                 
                 # Fetch trade info
                 cur.execute("""
-                    SELECT id, entry_price, tp1, is_sl_moved, status 
+                    SELECT id, entry_price, tp1, tp2, is_sl_moved, trailing_activated, status 
                     FROM active_trades 
                     WHERE symbol = %s AND status = 'OPEN_TPS_SET'
                 """, (symbol,))
                 row = cur.fetchone()
                 
                 if row:
-                    t_id, entry, tp1, sl_moved, status = row
+                    t_id, entry, tp1, tp2, sl_moved, trailing_activated, status = row
                     
                     # 1. POSITION CLOSED CHECK (Size -> 0)
                     if size == 0:
@@ -212,7 +218,8 @@ def on_position_update(message):
                             trades = exchange.fetch_my_trades(symbol, limit=1)
                             real_pnl = float(trades[0]['info'].get('closedPnl', 0)) if trades else 0
                             cur.execute("UPDATE active_trades SET status = 'CLOSED', pnl = %s, updated_at = NOW() WHERE id = %s", (real_pnl, t_id))
-                        except:
+                        except Exception as trade_err:
+                            logger.warning(f"WS: Could not fetch PnL for {symbol}: {trade_err}")
                             cur.execute("UPDATE active_trades SET status = 'CLOSED', updated_at = NOW() WHERE id = %s", (t_id,))
                         conn.commit()
                         return
@@ -231,12 +238,55 @@ def on_position_update(message):
                         except Exception as sl_err:
                             logger.error(f"⚠️ Failed to move SL for {symbol}: {sl_err}")
 
+                    # 3. TRAILING STOP LOGIC
+                    # Determine the activation TP level based on config
+                    activation_price = float(tp1) if TRAILING_ACT_TP == 1 else float(tp2)
+                    hit_activation_tp = (side == 'Buy' and mark_price >= activation_price) or \
+                                        (side == 'Sell' and mark_price <= activation_price)
+
+                    # Activate trailing once SL has been moved to breakeven and activation TP is hit
+                    if sl_moved and not trailing_activated and hit_activation_tp:
+                        logger.info(f"📐 WS: {symbol} hit TP{TRAILING_ACT_TP}. Activating trailing stop ({TRAILING_STOP_PCT*100:.1f}%).")
+                        cur.execute("UPDATE active_trades SET trailing_activated = TRUE WHERE id = %s", (t_id,))
+                        trailing_activated = True
+                        conn.commit()
+
+                    # Ratchet the trailing stop in the favorable direction
+                    if trailing_activated:
+                        # Fetch current SL from the position data
+                        current_sl = float(pos.get('stopLoss', 0))
+                        if current_sl == 0:
+                            # Fallback: use entry price if SL not in WS data
+                            current_sl = float(entry)
+
+                        if side == 'Buy':
+                            new_sl = mark_price * (1 - TRAILING_STOP_PCT)
+                            if new_sl > current_sl:
+                                logger.info(f"📈 WS: {symbol} Trailing SL moved up: {current_sl:.4f} → {new_sl:.4f} (mark={mark_price:.4f})")
+                                try:
+                                    exchange.set_position_stop_loss(symbol, new_sl, side.lower())
+                                    cur.execute("UPDATE active_trades SET sl_price = %s WHERE id = %s", (new_sl, t_id))
+                                    conn.commit()
+                                except Exception as trail_err:
+                                    logger.error(f"⚠️ Trailing SL update failed for {symbol}: {trail_err}")
+                        elif side == 'Sell':
+                            new_sl = mark_price * (1 + TRAILING_STOP_PCT)
+                            if new_sl < current_sl:
+                                logger.info(f"📉 WS: {symbol} Trailing SL moved down: {current_sl:.4f} → {new_sl:.4f} (mark={mark_price:.4f})")
+                                try:
+                                    exchange.set_position_stop_loss(symbol, new_sl, side.lower())
+                                    cur.execute("UPDATE active_trades SET sl_price = %s WHERE id = %s", (new_sl, t_id))
+                                    conn.commit()
+                                except Exception as trail_err:
+                                    logger.error(f"⚠️ Trailing SL update failed for {symbol}: {trail_err}")
+
             except Exception as e:
                 # logger.error(f"WS Pos Error: {e}") # Silent fail on DB locks
-                pass
+                logger.debug(f"WS Pos Error (likely DB lock): {e}")
             finally:
                 release_conn(conn)
-    except: pass
+    except Exception as e:
+        logger.debug(f"WS Position payload error: {e}")
 
 # ---------------------------------------------------------
 # 📥 SIGNAL INGESTION (Loop)
@@ -262,6 +312,12 @@ def ingest_fresh_signals():
             markets = exchange.load_markets()
         except Exception as e:
             logger.error(f"API Fetch Error: {e}")
+            return
+
+        # 2b. Circuit Breaker — halt if safety limits breached
+        allowed, reason = circuit_breaker.can_trade(total_equity)
+        if not allowed:
+            logger.warning(f"🛑 Circuit Breaker TRIPPED — skipping signals: {reason}")
             return
 
         # 3. Get New Signals
@@ -291,22 +347,37 @@ def ingest_fresh_signals():
             
             final_leverage = min(TARGET_LEVERAGE, int(max_lev))
             
-            # B. Risk Calc (1% of Equity)
-            # Qty = Risk ($) / |Entry - SL|
-            margin_cost = total_equity * RISK_PERCENT
-            
-            # 2. Calculate Total Position Value (Notional)
-            # Example: $1.00 Cost * 25x Leverage = $25.00 Position
-            position_value = margin_cost * final_leverage
-            
-            # 3. Calculate Quantity in Coins
-            # Example: $25.00 / $0.50 Entry = 50 Coins
-            qty_coins = position_value / entry
-            
-            # Check Min Notional (Approx $6 for Bybit)
+            # B. Risk-Based Position Sizing
+            # -----------------------------------------------
+            # risk_amount  = equity × risk%   (dollar amount we're willing to lose)
+            # risk_distance = |entry − SL|    (stop-loss distance in price)
+            # qty_coins    = risk_amount / risk_distance
+            #   → if SL is hit, we lose exactly risk_amount (1% of equity)
+            #
+            # Leverage is set on the exchange but does NOT inflate position size;
+            # it only determines the margin required to hold the position.
+            # A max-position cap (5% of equity) prevents oversized positions
+            # when the SL distance is very tight.
+            # -----------------------------------------------
+            risk_amount   = total_equity * RISK_PERCENT
+            risk_distance = abs(entry - sl)
+
+            if risk_distance == 0:
+                logger.warning(f"⚠️ Signal {sym} skipped: SL equals entry (zero risk distance).")
+                continue
+
+            qty_coins = risk_amount / risk_distance
+
+            # Cap position size to MAX_POSITION_PCT of equity (prevents huge sizes on tight SL)
+            max_notional = total_equity * MAX_POSITION_PCT
             notional = qty_coins * entry
-            if position_value < 6.0:
-                logger.warning(f"⚠️ Signal {sym} skipped: Position value ${position_value:.2f} is below Bybit min ($6).")
+            if notional > max_notional:
+                qty_coins = max_notional / entry
+                notional = max_notional
+
+            # Check Min Notional (Approx $6 for Bybit)
+            if notional < 6.0:
+                logger.warning(f"⚠️ Signal {sym} skipped: Notional ${notional:.2f} is below Bybit min ($6).")
                 continue
 
             # C. Insert PENDING Trade
@@ -315,7 +386,7 @@ def ingest_fresh_signals():
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
             """, (sig_id, sym, side, entry, sl, tp1, tp2, tp3, qty_coins, final_leverage))
             
-            logger.info(f"📥 Signal Ingested: {sym} | Lev: {final_leverage}x | Cost: ${margin_cost:.2f}")
+            logger.info(f"📥 Signal Ingested: {sym} | Lev: {final_leverage}x | Risk: ${risk_amount:.2f} | Qty: {qty_coins:.6f} | Notional: ${notional:.2f}")
             current_active += 1
             
         conn.commit()
@@ -347,7 +418,8 @@ def execute_pending_orders():
             try:
                 # 1. Set Leverage
                 try: exchange.set_leverage(int(lev), sym)
-                except: pass
+                except Exception as lev_err:
+                    logger.debug(f"set_leverage failed for {sym} (may already be set): {lev_err}")
 
                 # 2. Check LIVE Price
                 ticker = exchange.fetch_ticker(sym)
@@ -423,8 +495,7 @@ def check_missed_tps():
                     order_status = order['status']
                 except Exception as e:
                     # If fetch_order fails (e.g. order too old), search Closed Orders manually
-                    # logger.warning(f"Fetch Order failed for {sym}, searching history... {e}")
-                    pass
+                    logger.debug(f"Fetch Order failed for {sym}, searching history... {e}")
 
                 # 2. Fallback: Search Recent History if direct fetch failed
                 if not order_status:
@@ -435,7 +506,8 @@ def check_missed_tps():
                             if str(o['id']) == str(oid):
                                 order_status = o['status']
                                 break
-                    except: pass
+                    except Exception as hist_err:
+                        logger.debug(f"History search failed for {sym}: {hist_err}")
                 
                 # 3. Process Status
                 if order_status == 'closed':
@@ -537,6 +609,7 @@ if __name__ == "__main__":
     schedule.every(5).seconds.do(execute_pending_orders)    # Fast Execution
     schedule.every(10).seconds.do(check_missed_tps)         # Safety Net
     schedule.every().day.at("00:00").do(generate_daily_report)
+    schedule.every().day.at("00:01").do(circuit_breaker.reset)
     
     logger.info(f"🚀 Bot is LIVE. Monitoring {MAX_POSITIONS} Max Positions.")
     

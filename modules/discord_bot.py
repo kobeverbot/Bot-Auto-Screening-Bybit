@@ -1,10 +1,12 @@
-import requests, json, os, pytz, pandas as pd, numpy as np
+import requests, json, os, pytz, logging, pandas as pd, numpy as np
 import mplfinance as mpf
 from scipy.signal import argrelextrema
 from datetime import datetime
 from psycopg2.extras import RealDictCursor
 from modules.config_loader import CONFIG
 from modules.database import get_conn, release_conn
+
+logger = logging.getLogger(__name__)
 
 def get_now(): return datetime.now(pytz.timezone(CONFIG['system']['timezone']))
 def format_price(value): return "{:.8f}".format(float(value)).rstrip('0').rstrip('.') if float(value) < 1 else "{:.2f}".format(float(value))
@@ -212,10 +214,9 @@ def update_status_dashboard():
                 new_id = r.json().get('id')
                 cur.execute("INSERT INTO bot_state (key_name, value_text) VALUES ('dashboard_msg_id', %s) ON CONFLICT (key_name) DO UPDATE SET value_text = EXCLUDED.value_text", (str(new_id),))
                 conn.commit()
-    except: pass
+    except Exception as e:
+        logger.warning(f"Dashboard update failed: {e}")
     finally: release_conn(conn)
-
-def run_fast_update(): update_status_dashboard()
 
 def send_scan_completion(count, duration, bias):
     webhook = CONFIG['api']['discord_webhook']
@@ -223,7 +224,8 @@ def send_scan_completion(count, duration, bias):
     color = 0x00ff00 if "Bullish" in bias else (0xff0000 if "Bearish" in bias else 0x808080)
     embed = {"title": "🔭 Scan Cycle Complete", "color": color, "fields": [{"name": "⏱️ Duration", "value": f"`{duration:.2f}s`", "inline": True}, {"name": "📶 Signals", "value": f"`{count}`", "inline": True}, {"name": "📊 Bias", "value": f"**{bias}**", "inline": True}]}
     try: requests.post(webhook, json={"embeds": [embed]})
-    except: pass
+    except Exception as e:
+        logger.warning(f"Scan completion notification failed: {e}")
 
 def run_fast_update():
     update_status_dashboard()

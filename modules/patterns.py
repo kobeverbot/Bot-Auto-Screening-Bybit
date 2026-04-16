@@ -1,11 +1,16 @@
+import logging
 import numpy as np
 from scipy.signal import argrelextrema
 from scipy.stats import linregress
 from modules.config_loader import CONFIG
 
+logger = logging.getLogger(__name__)
+
 def get_slope(values):
     try: return linregress(np.arange(len(values)), values)[0]
-    except: return 0.0
+    except Exception as e:
+        logger.debug(f"get_slope failed: {e}")
+        return 0.0
 
 def check_alignment(values):
     if len(values) < 2: return False
@@ -31,5 +36,6 @@ def find_pattern(df):
     if enabled.get('double_bottom') and check_alignment(valleys[-2:]): return 'double_bottom'
     if enabled.get('double_top') and check_alignment(peaks[-2:]): return 'double_top'
     if enabled.get('bull_flag') and -0.002 < s_high < -0.0002 and -0.002 < s_low < -0.0002: return 'bull_flag'
+    if enabled.get('bear_flag') and 0.0002 < s_high < 0.002 and 0.0002 < s_low < 0.002: return 'bear_flag'
     if enabled.get('bullish_rectangle') and abs(s_high) < 0.0005 and abs(s_low) < 0.0005: return 'bullish_rectangle'
     return None

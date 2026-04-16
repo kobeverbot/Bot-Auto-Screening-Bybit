@@ -55,5 +55,26 @@
         "ascending_triangle": "Long",
         "descending_triangle": "Short", 
         "bullish_rectangle": "Long"
+    },
+    "trading": {
+        "target_leverage": 25,
+        "risk_percent": 0.01,
+        "max_positions": 40,
+        "max_position_pct": 0.05,
+        "trailing_stop_pct": 0.015,
+        "trailing_activation_tp": 2
+    },
+    "circuit_breaker": {
+        "enabled": true,
+        "max_daily_loss_pct": 0.05,
+        "max_consecutive_losses": 5,
+        "pause_minutes_on_consecutive": 60,
+        "max_daily_trades": 50,
+        "max_open_exposure_pct": 2.0
+    },
+    "rate_limiter": {
+        "max_calls": 20,
+        "per_seconds": 1,
+        "burst": 10
     }
 }
