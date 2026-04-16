@@ -8,6 +8,7 @@ from pybit.unified_trading import WebSocket
 from modules.config_loader import CONFIG
 from modules.database import get_conn, release_conn
 from modules.circuit_breaker import circuit_breaker
+from modules.dynamic_risk import adjust_for_volatility, validate_sl_distance
 
 # --- ⚙️ CONFIGURATION ---
 _trading_cfg = CONFIG.get('trading', {})
@@ -338,28 +339,72 @@ def ingest_fresh_signals():
             sig_id, sym, side, entry, sl, tp1, tp2, tp3 = sig
             entry, sl = float(entry), float(sl)
             
-            # A. Dynamic Leverage (Target 25x or Max)
+            # A. Dynamic Risk Adjustment (volatility-aware leverage & sizing)
             market = markets.get(sym)
             max_lev = 25
             if market and 'limits' in market:
                 limit_lev = market['limits']['leverage']['max']
                 if limit_lev: max_lev = float(limit_lev)
             
-            final_leverage = min(TARGET_LEVERAGE, int(max_lev))
+            # Fetch recent OHLCV for volatility analysis (30 bars of 4h)
+            try:
+                ohlcv_df = None
+                if market:
+                    raw_ohlcv = exchange.fetch_ohlcv(sym, '4h', limit=30)
+                    if raw_ohlcv and len(raw_ohlcv) >= 20:
+                        import pandas as pd
+                        ohlcv_df = pd.DataFrame(
+                            raw_ohlcv,
+                            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                        )
+                        ohlcv_df['timestamp'] = pd.to_datetime(ohlcv_df['timestamp'], unit='ms')
+            except Exception as ohlcv_err:
+                logger.debug(f"OHLCV fetch failed for {sym}: {ohlcv_err}")
+                ohlcv_df = None
+            
+            # Apply dynamic risk adjustment based on volatility
+            if ohlcv_df is not None:
+                risk_adj = adjust_for_volatility(
+                    df=ohlcv_df,
+                    symbol=sym,
+                    base_leverage=TARGET_LEVERAGE,
+                    base_risk_pct=RISK_PERCENT,
+                    base_max_position_pct=MAX_POSITION_PCT,
+                    market_max_leverage=int(max_lev),
+                )
+                final_leverage = risk_adj["leverage"]
+                effective_risk_pct = risk_adj["risk_pct"]
+                effective_max_pos_pct = risk_adj["max_position_pct"]
+                
+                # Validate SL distance against ATR
+                if risk_adj["profile"] and risk_adj["profile"].atr > 0:
+                    sl_ok, sl_reason, sl_rec = validate_sl_distance(
+                        entry, sl, risk_adj["profile"].atr, sym
+                    )
+                    if not sl_ok:
+                        logger.warning(f"⚠️ {sym}: {sl_reason}")
+                        if sl_rec:
+                            sl = sl_rec
+                            logger.info(f"📌 {sym}: SL adjusted to {sl:.4f} (ATR-based)")
+            else:
+                # Fallback: static config (no OHLCV available)
+                final_leverage = min(TARGET_LEVERAGE, int(max_lev))
+                effective_risk_pct = RISK_PERCENT
+                effective_max_pos_pct = MAX_POSITION_PCT
             
             # B. Risk-Based Position Sizing
             # -----------------------------------------------
-            # risk_amount  = equity × risk%   (dollar amount we're willing to lose)
-            # risk_distance = |entry − SL|    (stop-loss distance in price)
+            # risk_amount  = equity × effective_risk%  (adjusted for volatility)
+            # risk_distance = |entry − SL|             (stop-loss distance in price)
             # qty_coins    = risk_amount / risk_distance
-            #   → if SL is hit, we lose exactly risk_amount (1% of equity)
+            #   → if SL is hit, we lose exactly risk_amount
             #
             # Leverage is set on the exchange but does NOT inflate position size;
             # it only determines the margin required to hold the position.
-            # A max-position cap (5% of equity) prevents oversized positions
+            # A max-position cap (adjusted for volatility) prevents oversized positions
             # when the SL distance is very tight.
             # -----------------------------------------------
-            risk_amount   = total_equity * RISK_PERCENT
+            risk_amount   = total_equity * effective_risk_pct
             risk_distance = abs(entry - sl)
 
             if risk_distance == 0:
@@ -368,8 +413,8 @@ def ingest_fresh_signals():
 
             qty_coins = risk_amount / risk_distance
 
-            # Cap position size to MAX_POSITION_PCT of equity (prevents huge sizes on tight SL)
-            max_notional = total_equity * MAX_POSITION_PCT
+            # Cap position size to effective_max_pos_pct of equity (volatility-adjusted)
+            max_notional = total_equity * effective_max_pos_pct
             notional = qty_coins * entry
             if notional > max_notional:
                 qty_coins = max_notional / entry
@@ -386,7 +431,10 @@ def ingest_fresh_signals():
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING')
             """, (sig_id, sym, side, entry, sl, tp1, tp2, tp3, qty_coins, final_leverage))
             
-            logger.info(f"📥 Signal Ingested: {sym} | Lev: {final_leverage}x | Risk: ${risk_amount:.2f} | Qty: {qty_coins:.6f} | Notional: ${notional:.2f}")
+            regime_info = ""
+            if ohlcv_df is not None and risk_adj.get("profile"):
+                regime_info = f" | Regime: {risk_adj['profile'].regime}"
+            logger.info(f"📥 Signal Ingested: {sym} | Lev: {final_leverage}x | Risk: ${risk_amount:.2f} ({effective_risk_pct*100:.2f}%){regime_info} | Qty: {qty_coins:.6f} | Notional: ${notional:.2f}")
             current_active += 1
             
         conn.commit()

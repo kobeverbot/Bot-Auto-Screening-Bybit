@@ -51,6 +51,7 @@ Edita `config.json` con tus credenciales:
 | `setup` | Niveles Fibonacci para entry/SL/TP |
 | `strategy` | Scores mínimos y R:R |
 | `circuit_breaker` | Límites de pérdida y exposición |
+| `dynamic_risk` | Gestión de riesgo dinámica por volatilidad (nuevo) |
 | `rate_limiter` | Límites de llamadas API (nuevo) |
 
 ---
@@ -80,8 +81,8 @@ El bot ejecutará un scan inmediato y luego repetirá según el intervalo config
 El autor menciona varias áreas donde se puede mejorar:
 
 1. ~~**Backtesting**~~ — ✅ **Implementado!** Ver sección Backtesting abajo
-2. **Gestión de riesgo más granular** — Ajuste dinámico de leverage según volatilidad del activo
-3. **Más patrones chartistas** — Agregar wedge, head & shoulders, cup & handle
+2. ~~**Gestión de riesgo más granular**~~ — ✅ **Implementado!** Ver sección Dynamic Risk abajo
+3. ~~**Más patrones chartistas**~~ — ✅ **Implementado!** Wedge, head & shoulders, cup & handle, inverse H&S, rising/falling wedge
 4. **Machine Learning** — Score compuesto con modelo entrenado en señales pasadas
 5. **Multi-exchange** — Soportar Binance, OKX además de Bybit
 6. **Dashboard web** — Interfaz web además de Discord para monitoreo
@@ -150,6 +151,62 @@ python run_backtest.py --export backtest_results.json
 ```
 
 Genera un JSON con todas las señales y trades simulados para análisis posterior.
+
+---
+
+## 🛡️ Dynamic Risk Management
+
+El módulo `dynamic_risk.py` ajusta automáticamente el leverage, tamaño de posición y riesgo por trade basándose en la **volatilidad del activo** (NATR) y la **fuerza de la tendencia** (ADX).
+
+### ¿Cómo funciona?
+
+```
+OHLCV Data → NATR (volatilidad) + ADX (tendencia)
+         → Clasificación de régimen
+            ├─ Calm     (NATR < 2%)  → Leverage ×1.3, Risk ×1.2
+            ├─ Normal   (NATR < 5%)  → Leverage ×1.0, Risk ×1.0
+            ├─ Volatile (NATR < 10%) → Leverage ×0.6, Risk ×0.7
+            └─ Extreme  (NATR > 10%) → Leverage ×0.3, Risk ×0.4
+         → Si ADX > 25 (trending) + régimen calm/normal → bonus ×0.2 leverage
+         → Validación de SL vs ATR (muy tight < 0.5 ATR, muy ancho > 4 ATR)
+```
+
+### Ejemplo práctico
+
+| Activo | NATR | Régimen | Base Lev | Lev Final | Base Risk | Risk Final |
+|--------|------|---------|----------|-----------|-----------|------------|
+| BTC/USDT | 1.5% | Calm + Trending | 25x | 37x | 1.0% | 1.2% |
+| ETH/USDT | 3.2% | Normal | 25x | 25x | 1.0% | 1.0% |
+| DOGE/USDT | 8.5% | Volatile | 25x | 15x | 1.0% | 0.7% |
+| PEPE/USDT | 15% | Extreme | 25x | 7x | 1.0% | 0.4% |
+
+### Exposición dinámica del portfolio
+
+El circuit breaker se beneficia del módulo de riesgo dinámico:
+- Si >25% de posiciones están en régimen volatile → exposición total se reduce 15%
+- Si >50% → reducción del 30%
+- Si >75% → reducción del 50%
+
+### Configuración (`config.json`)
+
+```json
+"dynamic_risk": {
+    "enabled": true,
+    "natr_length": 14,
+    "adx_length": 14,
+    "volatility_buckets": {
+        "calm":     {"natr_max": 2.0,  "leverage_mult": 1.3, "risk_mult": 1.2, "max_pos_mult": 1.2},
+        "normal":   {"natr_max": 5.0,  "leverage_mult": 1.0, "risk_mult": 1.0, "max_pos_mult": 1.0},
+        "volatile": {"natr_max": 10.0, "leverage_mult": 0.6, "risk_mult": 0.7, "max_pos_mult": 0.7},
+        "extreme":  {"natr_max": 999.0, "leverage_mult": 0.3, "risk_mult": 0.4, "max_pos_mult": 0.5}
+    },
+    "adx_threshold": 25.0,
+    "trending_leverage_bonus": 0.2,
+    "target_leverage": 25,
+    "min_leverage": 1,
+    "max_leverage": 50
+}
+```
 
 ---
 

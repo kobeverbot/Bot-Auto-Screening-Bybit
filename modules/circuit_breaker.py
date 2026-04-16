@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from modules.database import get_conn, release_conn
 from modules.config_loader import CONFIG
+from modules.dynamic_risk import get_dynamic_exposure_limit
 
 logger = logging.getLogger("CircuitBreaker")
 
@@ -29,6 +30,7 @@ class CircuitBreaker:
         # Internal state
         self._consecutive_pause_until = None  # datetime when pause expires
         self._tripped_reason = None           # last trip reason (informational)
+        self._open_volatility_profiles = []   # list of VolatilityProfile for open positions
 
     # ------------------------------------------------------------------
     # Individual checks — each returns (bool_ok, str_reason)
@@ -160,11 +162,19 @@ class CircuitBreaker:
         """
         Sum notional value of all OPEN + OPEN_TPS_SET positions and compare to
         max_open_exposure_pct × equity.
+        
+        The exposure limit is dynamically adjusted based on the volatility profile
+        of open positions (more volatile positions → lower limit).
         """
         if total_equity <= 0:
             return True, "equity_unavailable"
 
-        max_notional = total_equity * self.max_open_exposure_pct
+        # Dynamic adjustment: reduce exposure limit if many volatile positions
+        effective_exposure_pct = get_dynamic_exposure_limit(
+            self.max_open_exposure_pct,
+            self._open_volatility_profiles,
+        )
+        max_notional = total_equity * effective_exposure_pct
 
         conn = get_conn()
         try:
@@ -182,7 +192,8 @@ class CircuitBreaker:
             if open_notional >= max_notional:
                 reason = (
                     f"Open exposure ${open_notional:.2f} >= "
-                    f"limit ${max_notional:.2f} ({self.max_open_exposure_pct*100:.0f}% equity)"
+                    f"limit ${max_notional:.2f} ({effective_exposure_pct*100:.0f}% equity"
+                    f"{' — reduced from ' + str(self.max_open_exposure_pct*100) + '% by vol' if effective_exposure_pct < self.max_open_exposure_pct else ''})"
                 )
                 return False, reason
             return True, "ok"
@@ -239,7 +250,15 @@ class CircuitBreaker:
         """Reset all circuit-breaker state. Call at midnight or manually."""
         self._consecutive_pause_until = None
         self._tripped_reason = None
+        self._open_volatility_profiles = []
         logger.info("🔄 Circuit Breaker reset — all checks cleared.")
+
+    def update_volatility_profiles(self, profiles: list):
+        """
+        Update the list of VolatilityProfile for current open positions.
+        Called periodically from auto_trades after analyzing open positions.
+        """
+        self._open_volatility_profiles = profiles
 
     def status(self) -> dict:
         """Return a dict summarising current circuit-breaker state."""
